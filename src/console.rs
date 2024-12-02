@@ -2,7 +2,7 @@ use duckdb::Error;
 use std::io::Write;
 use std::{fmt::Write as FmtWrite, num::ParseIntError};
 
-use crate::database::connection::{Account, Database, User};
+use crate::database::connection::{Account, AccountType, Database, User, UserSummary};
 
 const EXIT_CMD: &str = "exit";
 const HELP_CMD: &str = "help";
@@ -56,7 +56,6 @@ fn register(db: &Database) {
     let user: User = User {
         user_id,
         name: name.clone(),
-        accounts: Vec::new(),
     };
 
     let result: Result<usize, Error> = db.add_user(user);
@@ -76,8 +75,8 @@ fn register(db: &Database) {
 fn accounts(db: &Database) {
     // Fetch available accounts and list them:
     let user_id: String = get_user_id();
-    let user: Result<User, Error> = db.get_user(user_id);
-    match user {
+    let user_summary: Result<UserSummary, Error> = db.get_accounts(&user_id);
+    match user_summary {
         Err(error) => {
             eprintln!("Failed to fetch a user: {}", error);
             return;
@@ -86,19 +85,19 @@ fn accounts(db: &Database) {
     }
 }
 
-fn account_details(db: &Database, user: User) {
+fn account_details(db: &Database, user_summary: UserSummary) {
     println!(
         "\nWelcome {}, you have {} accounts. Select an option:",
-        user.name,
-        user.accounts.len()
+        user_summary.user.name,
+        user_summary.accounts.len()
     );
     let mut options_msg: String = String::new();
     let mut num_options: u8 = 0;
-    for account_id in &user.accounts {
+    for account in &user_summary.accounts {
         writeln!(
             &mut options_msg,
             "\t{} - Account #{}",
-            num_options, account_id
+            num_options, account.account_id
         )
         .unwrap();
         num_options += 1;
@@ -120,16 +119,18 @@ fn account_details(db: &Database, user: User) {
         eprintln!("Not a valid number.");
         return;
     }
-    let selected_option: u8 = selected_option_res.unwrap();
-    if usize::from(selected_option) > user.accounts.len() {
+    let selected_option: usize = usize::from(selected_option_res.unwrap());
+    if selected_option > user_summary.accounts.len() {
         eprintln!("Invalid selection.");
         return;
     }
 
     // We have a valid selection. Check whether we are creating or retrieving an account.
-    if selected_option == num_options {
-        // Create an account
-
+    if selected_option == num_options.into() {
+        create_account(&db, &user_summary.user);
+    } else {
+        let account: &Account = user_summary.accounts.get(selected_option).unwrap();
+        // TODO: implement accounts console page.
     }
 }
 
@@ -144,7 +145,30 @@ fn get_user_id() -> String {
     user_id.trim().to_string()
 }
 
-// TODO: Finish this
-// fn create_account() -> Account {
+fn create_account(db: &Database, user: &User) {
+    let mut account_type_str: String = String::new();
+    print!("\nSelect your account type:\n\t0 - Chequing\n\t1 - Savings\n");
+    std::io::stdout().flush().unwrap();
+    std::io::stdin()
+        .read_line(&mut account_type_str)
+        .expect("Console error.");
+    account_type_str = account_type_str.trim().to_string();
 
-// }
+    if account_type_str == "0" {
+        let res: Result<(), Error> = db.create_account(&user, AccountType::CHEQUING);
+        if res.is_err() {
+            eprintln!("Failed to create account: {}", res.unwrap_err());
+        } else {
+            println!("Created new Chequing account.");
+        }
+    } else if account_type_str == "1" {
+        let res: Result<(), Error> = db.create_account(&user, AccountType::SAVINGS);
+        if res.is_err() {
+            eprintln!("Failed to create account: {}", res.unwrap_err());
+        } else {
+            println!("Created new Savings account.");
+        }
+    } else {
+        eprintln!("Invalid selection!");
+    }
+}
